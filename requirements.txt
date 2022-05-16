@@ -1,0 +1,4 @@
+pandas==1.4.2
+pyahocorasick==1.4.4
+morfeusz2==1.99.4
+pyxDamerauLevenshtein==1.7.0
