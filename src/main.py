@@ -4,6 +4,8 @@ import pickle
 import gzip
 import morfeusz2
 import pandas as pd
+import re
+from string import punctuation
 from pyxdameraulevenshtein import damerau_levenshtein_distance
 
 
@@ -12,7 +14,7 @@ class TextCorrectorPL:
         with gzip.open("static/words_trie.pkl.gz", "rb") as f:
             self.words_trie = pickle.load(f)
 
-        self.morfeusz = morfeusz2.Morfeusz()
+        self.__morfeusz = morfeusz2.Morfeusz()
 
         self.qwerty_typos = {
             "q": ["a", "w"],
@@ -44,7 +46,7 @@ class TextCorrectorPL:
         }
 
     def ___is_in_morfeusz_dict(self, word):
-        return self.morfeusz.analyse(word)[0][2][2] != "ign"
+        return self.__morfeusz.analyse(word)[0][2][2] != "ign"
 
     def __find_freq(self, word):
         return self.words_trie.get(word, [0, ""])[0]
@@ -133,3 +135,30 @@ class TextCorrectorPL:
         for index in range(len(word)):
             candidates.append(word[:index] + "?" + word[index:])
         return candidates
+
+    def __check_if_token_is_upper(self, token):
+        return token[0].upper()
+
+    def __find_candicates(token):
+        pass
+
+    def correct_text(self, sequence):
+        seq_split = [item for sublist in [elem.split() if not elem.isspace() else elem for elem in [re.sub(f'([{punctuation}0-9])', r' \1 ', elem) for elem in re.split(r'(\s+)', sequence)]] for item in sublist]
+        # this list of comprehension above consists of following steps:
+        # re.split(r'(\s+)', sequence) - split sequence but not by whitespaces (whitespaces are becoming elements of list)
+        # re.sub(f'([{punctuation}0-9])', r' \1 ', elem) - add whitespaces before and after punctuation and numbers
+        # iterate through elements in list and split them (separator is whitespace) if element is not space (.isspace() method)
+        # flaten the list
+        text_corrected = list()
+        for token in seq_split:
+            if token.isspace():
+                text_corrected.append(token)
+            elif token in punctuation:
+                text_corrected.append(token)
+            elif self.___is_in_morfeusz_dict(token):
+                text_corrected.append(token)
+            else:
+                pass
+        return "".join(text_corrected)
+
+    
