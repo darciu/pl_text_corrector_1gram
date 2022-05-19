@@ -12,11 +12,11 @@ from pyxdameraulevenshtein import damerau_levenshtein_distance
 class TextCorrectorPL:
     def __init__(self):
         with gzip.open("static/words_trie.pkl.gz", "rb") as f:
-            self.words_trie = pickle.load(f)
+            self.__words_trie = pickle.load(f)
 
         self.__morfeusz = morfeusz2.Morfeusz()
 
-        self.qwerty_typos = {
+        self.__qwerty_typos = {
             "q": ["a", "w"],
             "w": ["q", "a", "s", "e"],
             "e": ["w", "s", "d", "r"],
@@ -45,11 +45,13 @@ class TextCorrectorPL:
             "m": ["n", "j", "k"],
         }
 
-    def ___is_in_morfeusz_dict(self, word):
-        return self.__morfeusz.analyse(word)[0][2][2] != "ign"
+    def ___is_in_morfeusz_dict(self, token: str) -> bool:
+        """check if token exists in morfeusz dictionary"""
+        return self.__morfeusz.analyse(token)[0][2][2] != "ign"
 
-    def __find_freq(self, word):
-        return self.words_trie.get(word, [0, ""])[0]
+    def __find_freq(self, token: str) -> int:
+        """get frequency of the word from words trie"""
+        return self.__words_trie.get(token, [0, ""])[0]
 
     def __construct_dataframe(self, candidates, weight):
         df_temp = pd.DataFrame(candidates)
@@ -57,7 +59,7 @@ class TextCorrectorPL:
         df_temp["weight"] = weight
         return df_temp
 
-    def __replace_with_diacritic(self, words: set, index: int) -> set:
+    def __replace_with_diacritic(self, tokens: set, index: int) -> set:
         """return set of various word combination for possible diacritic letter variations"""
 
         diacritic = {
@@ -71,54 +73,56 @@ class TextCorrectorPL:
         }
 
         output_words = set()
-        output_words.update(words)
-        letter = next(iter(words))[index]
+        output_words.update(tokens)
+        letter = next(iter(tokens))[index]
         if letter == "z":
-            for word in words:
+            for word in tokens:
                 output_words.update([word[:index] + "ż" + word[index + 1 :]])
                 output_words.update([word[:index] + "ź" + word[index + 1 :]])
         elif letter in diacritic.keys():
-            for word in words:
+            for word in tokens:
                 output_words.update(
                     [word[:index] + diacritic[letter] + word[index + 1 :]]
                 )
         return output_words
 
-    def __diacritic_combinations(self, word: str) -> list:
+    def __diacritic_combinations(self, token: str) -> list:
         """gather all word diacritic word variations and return list with no duplicates"""
 
-        all_combinations = set([word])
-        for index in range(len(word)):
+        all_combinations = set([token])
+        for index in range(len(token)):
             all_combinations.update(
                 self.__replace_with_diacritic(all_combinations, index)
             )
         return list(all_combinations)
 
-    def __remove_one_letter_from_word(self, word):
+    def __remove_one_letter_from_word(self, token: str) -> list:
+        """return list of original token but with removed every single letter"""
         candidates = list()
-        for index in range(len(word)):
-            candidates.append(word[:index] + word[index + 1 :])
+        for index in range(len(token)):
+            candidates.append(token[:index] + token[index + 1 :])
         return candidates
 
-    def __swap_two_adjacent_letters(self, word):
+    def __swap_two_adjacent_letters(self, token: str) -> list:
+        """for given token swap every adjecent letter and return as a list"""
         candidates = list()
-        for index in range(len(word) - 1):
+        for index in range(len(token) - 1):
             candidates.append(
-                word[:index] + word[index + 1] + word[index] + word[index + 2 :]
+                token[:index] + token[index + 1] + token[index] + token[index + 2 :]
             )
         return candidates
 
     def __qwerty_keyboard_typos(self, word):
         candidates = list()
         for index in range(len(word)):
-            for typo in self.qwerty_typos[word[index]]:
+            for typo in self.__qwerty_typos[word[index]]:
                 candidates.append(word[:index] + typo + word[index + 1 :])
         return candidates
 
     def __reduce_qwerty_keyboard_typo(self, word):
         candidates = list()
         for index in range(len(word) - 1):
-            if word[index] in self.qwerty_typos[word[index + 1]]:
+            if word[index] in self.__qwerty_typos[word[index + 1]]:
                 candidates.append(word[:index] + word[index] + word[index + 2 :])
                 candidates.append(word[:index] + word[index + 1] + word[index + 2 :])
         return candidates
