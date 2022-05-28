@@ -22,15 +22,19 @@ class TextCorrectorPL:
             "q": ["a", "w"],
             "w": ["q", "a", "s", "e"],
             "e": ["w", "s", "d", "r"],
+            "ę": ["w", "s", "d", "r"],
             "r": ["e", "d", "f", "t"],
             "t": ["r", "f", "g", "y"],
             "y": ["t", "g", "h", "u"],
             "u": ["y", "h", "j", "i"],
             "i": ["u", "j", "k", "o"],
             "o": ["i", "k", "l", "p"],
+            "ó": ["i", "k", "l", "p"],
             "p": ["o", "l"],
             "a": ["q", "w", "s", "z"],
+            "ą": ["q", "w", "s", "z"],
             "s": ["a", "w", "e", "d", "x", "z"],
+            "ś": ["a", "w", "e", "d", "x", "z"],
             "d": ["s", "e", "r", "f", "c", "x"],
             "f": ["d", "r", "t", "g", "v", "c"],
             "g": ["f", "t", "y", "h", "b", "v"],
@@ -38,12 +42,17 @@ class TextCorrectorPL:
             "j": ["h", "u", "i", "k", "m", "n"],
             "k": ["j", "i", "o", "l", "m"],
             "l": ["k", "o", "p"],
+            "ł": ["k", "o", "p"],
             "z": ["a", "s", "x"],
+            "ż": ["a", "s", "x"],
+            "ź": ["a", "s", "x"],
             "x": ["z", "s", "d", "c"],
             "c": ["x", "d", "f", "v"],
+            "ć": ["x", "d", "f", "v"],
             "v": ["c", "f", "g", "b"],
             "b": ["v", "g", "h", "n"],
             "n": ["b", "h", "j", "m"],
+            "ń": ["b", "h", "j", "m"],
             "m": ["n", "j", "k"],
         }
 
@@ -150,8 +159,8 @@ class TextCorrectorPL:
             candidates.append(token[:index] + "?" + token[index:])
         return candidates
 
-    def __check_if_token_is_upper(self, token):
-        return token[0].upper()
+    def __check_if_token_is_upper(self, token: str) -> bool:
+        return token[0].isupper()
 
     def __split_sequence(self, sequence: str) -> list:
         """return splitted sequence but separate tokens are also punctuation, numbers and whitespaces"""
@@ -180,7 +189,7 @@ class TextCorrectorPL:
     def __construct_dataframe(self, candidates: list, weight: float) -> pd.DataFrame:
         """return pandas dataframe containing column with given candidates and weights"""
         df = pd.DataFrame(candidates)
-        df.columns = "token"
+        df.rename(columns={0:'token'},inplace=True)
         df["weight"] = weight
         return df
 
@@ -275,5 +284,9 @@ class TextCorrectorPL:
                 """token already exists in polish dictionary"""
                 text_corrected.append(token)
             else:
-                text_corrected.append(self.__correction_engine(token))
+                if self.__check_if_token_is_upper(token):
+                    token_correct = self.__correction_engine(token).capitalize()
+                else:
+                    token_correct = self.__correction_engine(token)
+                text_corrected.append(token_correct)
         return "".join(text_corrected)
