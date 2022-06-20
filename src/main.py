@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-
-
 import re
 import pickle
 import gzip
 from string import punctuation
-import pandas as pd
+import unidecode
+from itertools import combinations
 
+import pandas as pd
 import morfeusz2
 from pyxdameraulevenshtein import damerau_levenshtein_distance
 
@@ -89,11 +89,48 @@ class TextCorrectorPL:
 
     def __diacritic_combinations(self, token: str) -> list:
         """gather all diacritic token variations and return list with no duplicates"""
-
+        token = unidecode.unidecode(token)
         all_combinations = set([token])
         for index in range(len(token)):
             all_combinations.update(
                 self.__replace_with_diacritic(all_combinations, index)
+            )
+        return list(all_combinations)
+
+    def __replace_with_phonetic(self, tokens: set, index: int) -> set:
+        """return set of various word combination for possible phonetic letter variations"""
+
+        phonetic = {
+            "k": "g",
+            "g": "k",
+            "p": "b",
+            "b": "p",
+            'd': 't',
+            't': 'd',
+            'w': 'f',
+            'f': 'w',
+            'z': 's',
+            's': 'z'
+        }
+
+        output_words = set()
+        output_words.update(tokens)
+        letter = next(iter(tokens))[index]
+        
+        if letter in phonetic.keys():
+            for word in tokens:
+                output_words.update(
+                    [word[:index] + phonetic[letter] + word[index + 1 :]]
+                )
+        return output_words
+
+    def __phonetic_combinations(self, token: str) -> list:
+        """gather all phonetic token variations and return list with no duplicates"""
+
+        all_combinations = set([token])
+        for index in range(len(token)):
+            all_combinations.update(
+                self.__replace_with_phonetic(all_combinations, index)
             )
         return list(all_combinations)
 
@@ -215,6 +252,9 @@ class TextCorrectorPL:
         diacritic_candidates = self.__diacritic_combinations(token)
         diacritic_candidates.remove(token)
 
+        phonetic_candidates = self.__phonetic_combinations(token)
+        phonetic_candidates.remove(token)
+
         qwerty_typos_candidates = self.__qwerty_keyboard_typos(token)
 
         reduced_qwetry_typo_candidates = self.__reduce_qwerty_keyboard_typo(token)
@@ -231,6 +271,7 @@ class TextCorrectorPL:
 
         df = (
             self.__construct_dataframe(diacritic_candidates, 0.5)
+            .append(self.__construct_dataframe(phonetic_candidates, 1))
             .append(self.__construct_dataframe(qwerty_typos_candidates, 1))
             .append(self.__construct_dataframe(reduced_qwetry_typo_candidates, 1))
             .append(self.__construct_dataframe(remove_one_letter_candidates, 1))
