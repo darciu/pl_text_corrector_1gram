@@ -3,8 +3,9 @@ import re
 import pickle
 import gzip
 from string import punctuation
-import unidecode
-from itertools import combinations
+import unicodedata
+import itertools
+from typing import List
 
 import pandas as pd
 import morfeusz2
@@ -60,6 +61,14 @@ class TextCorrectorPL:
         """check if token exists in morfeusz dictionary"""
         return self.__morfeusz.analyse(token)[0][2][2] != "ign"
 
+    def __remove_xd(self, token: str) -> str:
+        if token[-2:] == 'xd':
+            return token[:-2]
+        return token
+
+    def __reduce_repeated_letters(self, token: str) -> str:
+        return re.sub(r'([a-z])\1+', r'\1', token)
+
     def __replace_with_diacritic(self, tokens: set, index: int) -> set:
         """return set of various word combination for possible diacritic letter variations"""
 
@@ -89,7 +98,13 @@ class TextCorrectorPL:
 
     def __diacritic_combinations(self, token: str) -> list:
         """gather all diacritic token variations and return list with no duplicates"""
-        token = unidecode.unidecode(token)
+
+        # # remove diacritics
+        def strip_accents(s):
+            return ''.join(c for c in unicodedata.normalize('NFD', s)
+                            if unicodedata.category(c) != 'Mn')
+
+        token = strip_accents(token)
         all_combinations = set([token])
         for index in range(len(token)):
             all_combinations.update(
@@ -133,6 +148,62 @@ class TextCorrectorPL:
                 self.__replace_with_phonetic(all_combinations, index)
             )
         return list(all_combinations)
+        
+    def __all_elements_combinations(self, lst: list) -> List[List[tuple]]:
+        """retrun all combinations of elements for given list"""
+        return [list(itertools.combinations(lst, i)) for i in range(1,len(lst)+1)]
+
+    def __spelling_combinations(self, token: str,tup: tuple) -> list:
+        """return combinations of given token according to provided spelling correction"""
+        len_1 = len(tup[0])
+        len_2 = len(tup[1])
+        if len_1 > len_2:
+            token = token.replace(tup[0],tup[0] + ' '*(len_2-len_1))
+            tup = (tup[0] + ' '*(len_2-len_1),tup[1])
+            len_1 = len(tup[0])
+            len_2 = len(tup[1])
+        token_combinations = list()
+        for comb in self.__all_elements_combinations([m.start() for m in re.finditer(tup[0], token)]):
+            for perm in comb:
+                token_copy = token
+                for pos in perm:
+                    token_copy = token_copy[:pos] + token_copy[pos:pos+len_1].replace(tup[0],tup[1]+' '*(len_1-len_2)) + token_copy[pos+len_1:]
+                token_combinations.append(token_copy.replace(' ',''))
+        return token_combinations
+    
+    def __common_spelling_errors(self, token: str) -> List[str]:
+        """return set of various word combination for most common spelling mistakes"""
+        output_words = set()
+        output_words.update([token])
+        if token[-2:] == 'jo':
+            output_words.update([token[:-2]+'ją'])
+        elif token[-1] == 'i':
+            output_words.update([token + 'i'])
+
+        for p in [
+                ("en","ę"),
+                ("ua","ła"),
+                ("ue","łe"),
+                ("uy","ły"),
+                ("om","ą"),
+                ("ą","om"),
+                ("on","ą"),
+                ("rz","sz"),
+                ("sz","rz"),
+                ("rz","ż"),
+                ("ż","rz"),
+                ("ch","h"),
+                ("h","ch"),
+                ("u","ó"),
+                ("ó","u"),
+                ("cz","trz"),
+                ("dz", "c"),
+        ]:
+            temp_set = set()
+            for word in output_words:
+                temp_set.update(self.__spelling_combinations(word,p))
+            output_words = output_words.union(temp_set)
+        return output_words
 
     def __remove_one_letter_from_token(self, token: str) -> list:
         """return list of original token but with removed every single letter"""
@@ -160,7 +231,7 @@ class TextCorrectorPL:
 
         candidates = list()
         for index in range(len(token)):
-            for typo in self.__qwerty_typos[token[index]]:
+            for typo in self.__qwerty_typos.get(token[index],[]):
                 candidates.append(token[:index] + typo + token[index + 1 :])
         return candidates
 
@@ -171,7 +242,7 @@ class TextCorrectorPL:
         """
         candidates = list()
         for index in range(len(token) - 1):
-            if token[index] in self.__qwerty_typos[token[index + 1]]:
+            if token[index] in self.__qwerty_typos.get(token[index + 1],[]):
                 candidates.append(token[:index] + token[index] + token[index + 2 :])
                 candidates.append(token[:index] + token[index + 1] + token[index + 2 :])
         return candidates
@@ -231,29 +302,28 @@ class TextCorrectorPL:
         return df
 
     def __wildcard_candidates_to_dataframe(
-        self, df: pd.DataFrame, candidates: list, weight: float
+        self, df: pd.DataFrame, wildcard_candidates: list, weight: float
     ) -> pd.DataFrame:
-        for candidate in candidates:
+        df = df[['token','weight','freq']]
+        for candidate in wildcard_candidates:
             l = list(self.__words_trie.values(candidate, "?"))
             if len(l) > 0:
                 for elem in l:
+
                     df.loc[len(df)] = [elem[1], weight, elem[0]]
 
         return df
 
-    def __correction_engine(self, token: str) -> str:
-        """
-        Main purpose of this part of the code is to collect as many resonable variations (candidates) for given token,
-        find frequency of this variation in words_trie, calculate damerau-levenshtein distance from original token and variation
-        and finally multiply everything including wages (there are different wages for different types of candicates).
-        The top result with highest score will be returned as the most relevant token.
-        """
-
+    def __create_df_with_candidates(self, token: str) -> pd.DataFrame:
         diacritic_candidates = self.__diacritic_combinations(token)
-        diacritic_candidates.remove(token)
+        try: diacritic_candidates.remove(token)
+        except: pass
 
         phonetic_candidates = self.__phonetic_combinations(token)
-        phonetic_candidates.remove(token)
+        try: phonetic_candidates.remove(token)
+        except: pass
+
+        spelling_errors_candidates = self.__common_spelling_errors(token)
 
         qwerty_typos_candidates = self.__qwerty_keyboard_typos(token)
 
@@ -272,6 +342,7 @@ class TextCorrectorPL:
         df = (
             self.__construct_dataframe(diacritic_candidates, 0.5)
             .append(self.__construct_dataframe(phonetic_candidates, 1))
+            .append(self.__construct_dataframe(spelling_errors_candidates, 1))
             .append(self.__construct_dataframe(qwerty_typos_candidates, 1))
             .append(self.__construct_dataframe(reduced_qwetry_typo_candidates, 1))
             .append(self.__construct_dataframe(remove_one_letter_candidates, 1))
@@ -291,14 +362,30 @@ class TextCorrectorPL:
 
         df = df[df["freq"] > 0]
 
-        df["calibrated_distance"] = (
-            df["token"].apply(lambda x: damerau_levenshtein_distance(x, token)) + 3
-        )  # this may be parameter
-        df["result"] = df["freq"] / (df["weight"] + df["calibrated_distance"])
+        return df
 
-        df.sort_values(by="result", ascending=False, inplace=True, ignore_index=True)
+    def __correction_engine(self, token: str) -> str:
+        """
+        Main purpose of this part of the code is to collect as many resonable variations (candidates) for given token,
+        find frequency of this variation in words_trie, calculate damerau-levenshtein distance from original token and variation
+        and finally multiply everything including wages (there are different wages for different types of candicates).
+        The top result with highest score will be returned as the most relevant token.
+        """
+
+        token = self.__remove_xd(token)
+
+        #reduced_repeated_letters_candidate = [self.__reduce_repeated_letters(token),]
+
+        df = self.__create_df_with_candidates(token)
 
         if len(df) > 0:
+            df['token'] = df['token'].astype(str)
+            df['token'] = df['token'].fillna('')
+            df["calibrated_distance"] = (
+            df["token"].apply(lambda x: damerau_levenshtein_distance(str(x), token)) + 3
+            )  # this may be parameter
+            df["result"] = df["freq"] / (df["weight"] + df["calibrated_distance"])
+            df.sort_values(by="result", ascending=False, inplace=True, ignore_index=True)
             return df["token"].iloc[0]
         else:
             return token
