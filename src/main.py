@@ -360,25 +360,25 @@ class TextCorrectorPL:
         )
 
         df = (
-            self.__construct_dataframe(diacritic_candidates, 0.5)
-            .append(self.__construct_dataframe(phonetic_candidates, 1))
+            self.__construct_dataframe(diacritic_candidates, 0.25)
+            .append(self.__construct_dataframe(phonetic_candidates, 0.5))
             .append(self.__construct_dataframe(spelling_errors_candidates, 3))
-            .append(self.__construct_dataframe(spelling_errors_diacritic_candidates, 3))
-            .append(self.__construct_dataframe(qwerty_typos_candidates, 2))
-            .append(self.__construct_dataframe(reduced_qwetry_typo_candidates, 2))
+            .append(self.__construct_dataframe(spelling_errors_diacritic_candidates, 3.5))
+            .append(self.__construct_dataframe(qwerty_typos_candidates, 3))
+            .append(self.__construct_dataframe(reduced_qwetry_typo_candidates, 3))
             .append(self.__construct_dataframe(remove_one_letter_diacritic_candidates, 3))
             .append(
-                self.__construct_dataframe(swap_two_adjacent_letters_candidates, 2.5)
+                self.__construct_dataframe(swap_two_adjacent_letters_candidates, 2)
             )
         )
 
         df["freq"] = df["token"].apply(self.__find_freq)
 
         df = self.__wildcard_candidates_to_dataframe(
-            df, additional_wildcard_candidates, 4
+            df, additional_wildcard_candidates, 5
         )
         df = self.__wildcard_candidates_to_dataframe(
-            df, replaced_letter_with_wildcard_candidates, 6
+            df, replaced_letter_with_wildcard_candidates, 8
         )
 
         df = df[df["freq"] > 0]
@@ -402,7 +402,7 @@ class TextCorrectorPL:
             df['token'] = df['token'].astype(str)
             df['token'] = df['token'].fillna('')
             df["calibrated_distance"] = (
-            df["token"].apply(lambda x: damerau_levenshtein_distance(str(x), token)) + 3
+            df["token"].apply(lambda x: damerau_levenshtein_distance(str(x), token)) + 2
             )  # this may be parameter
             df["result"] = df["freq"] / (df["weight"] + df["calibrated_distance"])
             df.sort_values(by="result", ascending=False, inplace=True, ignore_index=True)
