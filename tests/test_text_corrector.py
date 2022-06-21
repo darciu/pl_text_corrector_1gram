@@ -19,6 +19,8 @@ def test_find_freq():
 def test_diacritic_combinations():
     assert len(text_corrector._TextCorrectorPL__diacritic_combinations('asc')) == 8
     assert "żółw" in text_corrector._TextCorrectorPL__diacritic_combinations('zolw')
+    assert "zdzblo" in text_corrector._TextCorrectorPL__diacritic_combinations('zdzblo')
+    assert "zdzblo" in text_corrector._TextCorrectorPL__diacritic_combinations('źdźbło')
 
 def test_remove_one_letter_from_word():
     assert 'sowo' in text_corrector._TextCorrectorPL__remove_one_letter_from_token('słowo')

@@ -5,7 +5,7 @@ import gzip
 from string import punctuation
 import unicodedata
 import itertools
-from typing import List
+from typing import Callable, List
 
 import pandas as pd
 import morfeusz2
@@ -23,19 +23,19 @@ class TextCorrectorPL:
             "q": ["a", "w"],
             "w": ["q", "a", "s", "e"],
             "e": ["w", "s", "d", "r"],
-            "ę": ["w", "s", "d", "r"],
+            "ę": ["w", "s", "d", "r","ś"],
             "r": ["e", "d", "f", "t"],
             "t": ["r", "f", "g", "y"],
             "y": ["t", "g", "h", "u"],
             "u": ["y", "h", "j", "i"],
             "i": ["u", "j", "k", "o"],
             "o": ["i", "k", "l", "p"],
-            "ó": ["i", "k", "l", "p"],
+            "ó": ["i", "k", "l", "p","ł"],
             "p": ["o", "l"],
             "a": ["q", "w", "s", "z"],
-            "ą": ["q", "w", "s", "z"],
+            "ą": ["q", "w", "s", "z","ż","ś"],
             "s": ["a", "w", "e", "d", "x", "z"],
-            "ś": ["a", "w", "e", "d", "x", "z"],
+            "ś": ["a", "w", "e", "d", "x", "z","ą","ę","ż","ź"],
             "d": ["s", "e", "r", "f", "c", "x"],
             "f": ["d", "r", "t", "g", "v", "c"],
             "g": ["f", "t", "y", "h", "b", "v"],
@@ -43,10 +43,10 @@ class TextCorrectorPL:
             "j": ["h", "u", "i", "k", "m", "n"],
             "k": ["j", "i", "o", "l", "m"],
             "l": ["k", "o", "p"],
-            "ł": ["k", "o", "p"],
+            "ł": ["k", "o", "p","ł"],
             "z": ["a", "s", "x"],
-            "ż": ["a", "s", "x"],
-            "ź": ["a", "s", "x"],
+            "ż": ["a", "s", "x","ą","ś","ź"],
+            "ź": ["a", "s", "x","ą","ś","ż"],
             "x": ["z", "s", "d", "c"],
             "c": ["x", "d", "f", "v"],
             "ć": ["x", "d", "f", "v"],
@@ -61,13 +61,22 @@ class TextCorrectorPL:
         """check if token exists in morfeusz dictionary"""
         return self.__morfeusz.analyse(token)[0][2][2] != "ign"
 
+    def __produce_candidates(self, token_list: list, function: Callable) -> list:
+        """helper function to loop for tokens in list"""
+        token_set = set()
+        for token in token_list:
+            token_set.update(function(token))
+        return list(token_set)
+
     def __remove_xd(self, token: str) -> str:
+        """remove 'xd' phrase from the end of the token"""
         if token[-2:] == 'xd':
             return token[:-2]
         return token
 
-    def __reduce_repeated_letters(self, token: str) -> str:
-        return re.sub(r'([a-z])\1+', r'\1', token)
+    def __candidates_reduce_repeated_letters(self, token: str) -> list:
+        """ reduce multiple char occurrence for the single one"""
+        return list(set([re.sub(r'([a-z])\1+', r'\1', token), token]))
 
     def __replace_with_diacritic(self, tokens: set, index: int) -> set:
         """return set of various word combination for possible diacritic letter variations"""
@@ -96,13 +105,13 @@ class TextCorrectorPL:
                 )
         return output_words
 
-    def __diacritic_combinations(self, token: str) -> list:
+    def __candidates_diacritic_combinations(self, token: str) -> list:
         """gather all diacritic token variations and return list with no duplicates"""
 
         # # remove diacritics
         def strip_accents(s):
             return ''.join(c for c in unicodedata.normalize('NFD', s)
-                            if unicodedata.category(c) != 'Mn')
+                            if unicodedata.category(c) != 'Mn').replace('ł','l')
 
         token = strip_accents(token)
         all_combinations = set([token])
@@ -139,7 +148,7 @@ class TextCorrectorPL:
                 )
         return output_words
 
-    def __phonetic_combinations(self, token: str) -> list:
+    def __candidates_phonetic_combinations(self, token: str) -> list:
         """gather all phonetic token variations and return list with no duplicates"""
 
         all_combinations = set([token])
@@ -171,7 +180,7 @@ class TextCorrectorPL:
                 token_combinations.append(token_copy.replace(' ',''))
         return token_combinations
     
-    def __common_spelling_errors(self, token: str) -> List[str]:
+    def __candidates_common_spelling_errors(self, token: str) -> list:
         """return set of various word combination for most common spelling mistakes"""
         output_words = set()
         output_words.update([token])
@@ -205,7 +214,7 @@ class TextCorrectorPL:
             output_words = output_words.union(temp_set)
         return output_words
 
-    def __remove_one_letter_from_token(self, token: str) -> list:
+    def __candidates_remove_one_letter(self, token: str) -> list:
         """return list of original token but with removed every single letter"""
 
         candidates = list()
@@ -213,7 +222,7 @@ class TextCorrectorPL:
             candidates.append(token[:index] + token[index + 1 :])
         return candidates
 
-    def __swap_two_adjacent_letters(self, token: str) -> list:
+    def __candidates_swap_two_adjacent_letters(self, token: str) -> list:
         """for given token swap every adjecent letter and return as a list"""
 
         candidates = list()
@@ -223,7 +232,7 @@ class TextCorrectorPL:
             )
         return candidates
 
-    def __qwerty_keyboard_typos(self, token: str) -> list:
+    def __candidates_qwerty_keyboard_typos(self, token: str) -> list:
         """
         return list of all token variations but every letter is replaced with one of qwerty
         keyboard typos (look at __qwerty_typos dictionary)
@@ -235,7 +244,7 @@ class TextCorrectorPL:
                 candidates.append(token[:index] + typo + token[index + 1 :])
         return candidates
 
-    def __reduce_qwerty_keyboard_typo(self, token: str) -> list:
+    def __candidates_reduce_qwerty_keyboard_typo(self, token: str) -> list:
         """
         return list of all token variations but every possible qwerty keyboard double typo is reduced to one letter
         (eg. worlkd gives world and workd)
@@ -247,7 +256,7 @@ class TextCorrectorPL:
                 candidates.append(token[:index] + token[index + 1] + token[index + 2 :])
         return candidates
 
-    def __additional_wildcard(self, token: str) -> list:
+    def __candidates_additional_wildcard(self, token: str) -> list:
         """
         return list of all token variations but every two adjacent letters are filled with wildcard in between
         no wildcard at the end as it may indicate word's plural form
@@ -257,7 +266,7 @@ class TextCorrectorPL:
             candidates.append(token[:index] + "?" + token[index:])
         return candidates
 
-    def __replace_letter_with_wildcard(self, token: str) -> list:
+    def __candidates_replace_letter_with_wildcard(self, token: str) -> list:
         """
         return list of all token variations but every letter is replaced with wildcard
 
@@ -315,37 +324,49 @@ class TextCorrectorPL:
         return df
 
     def __create_df_with_candidates(self, token: str) -> pd.DataFrame:
-        diacritic_candidates = self.__diacritic_combinations(token)
-        try: diacritic_candidates.remove(token)
-        except: pass
 
-        phonetic_candidates = self.__phonetic_combinations(token)
-        try: phonetic_candidates.remove(token)
-        except: pass
+        reduced_candidates = self.__candidates_reduce_repeated_letters(token)
 
-        spelling_errors_candidates = self.__common_spelling_errors(token)
+        
+        #   1st, most common step are diacritic or phonetic mistakes
+        diacritic_candidates = self.__produce_candidates(reduced_candidates,self.__candidates_diacritic_combinations)
+        diacritic_candidates.remove(token)
 
-        qwerty_typos_candidates = self.__qwerty_keyboard_typos(token)
+        phonetic_candidates = self.__produce_candidates(reduced_candidates,self.__candidates_phonetic_combinations)
+        phonetic_candidates.remove(token)
 
-        reduced_qwetry_typo_candidates = self.__reduce_qwerty_keyboard_typo(token)
+        # most common grammar polish mistakes
+        
+        spelling_errors_candidates = self.__produce_candidates(reduced_candidates, self.__candidates_common_spelling_errors)
 
-        remove_one_letter_candidates = self.__remove_one_letter_from_token(token)
+        spelling_errors_diacritic_candidates = self.__produce_candidates(spelling_errors_candidates, self.__candidates_diacritic_combinations)
 
-        swap_two_adjacent_letters_candidates = self.__swap_two_adjacent_letters(token)
+        qwerty_typos_candidates = self.__produce_candidates(reduced_candidates, self.__candidates_qwerty_keyboard_typos)
 
-        additional_wildcard_candidates = self.__additional_wildcard(token)
+        reduced_qwetry_typo_candidates = self.__produce_candidates(reduced_candidates,self.__candidates_reduce_qwerty_keyboard_typo)
 
-        replaced_letter_with_wildcard_candidates = self.__replace_letter_with_wildcard(
+        remove_one_letter_diacritic_candidates = self.__produce_candidates(reduced_candidates, self.__candidates_remove_one_letter)
+
+        swap_two_adjacent_letters_candidates = self.__produce_candidates(reduced_candidates, self.__candidates_swap_two_adjacent_letters)
+
+
+
+
+
+        additional_wildcard_candidates = self.__candidates_additional_wildcard(token)
+
+        replaced_letter_with_wildcard_candidates = self.__candidates_replace_letter_with_wildcard(
             token
         )
 
         df = (
             self.__construct_dataframe(diacritic_candidates, 0.5)
             .append(self.__construct_dataframe(phonetic_candidates, 1))
-            .append(self.__construct_dataframe(spelling_errors_candidates, 1))
-            .append(self.__construct_dataframe(qwerty_typos_candidates, 1))
-            .append(self.__construct_dataframe(reduced_qwetry_typo_candidates, 1))
-            .append(self.__construct_dataframe(remove_one_letter_candidates, 1))
+            .append(self.__construct_dataframe(spelling_errors_candidates, 3))
+            .append(self.__construct_dataframe(spelling_errors_diacritic_candidates, 3))
+            .append(self.__construct_dataframe(qwerty_typos_candidates, 2))
+            .append(self.__construct_dataframe(reduced_qwetry_typo_candidates, 2))
+            .append(self.__construct_dataframe(remove_one_letter_diacritic_candidates, 3))
             .append(
                 self.__construct_dataframe(swap_two_adjacent_letters_candidates, 2.5)
             )
@@ -354,7 +375,7 @@ class TextCorrectorPL:
         df["freq"] = df["token"].apply(self.__find_freq)
 
         df = self.__wildcard_candidates_to_dataframe(
-            df, additional_wildcard_candidates, 2
+            df, additional_wildcard_candidates, 4
         )
         df = self.__wildcard_candidates_to_dataframe(
             df, replaced_letter_with_wildcard_candidates, 6
@@ -372,9 +393,8 @@ class TextCorrectorPL:
         The top result with highest score will be returned as the most relevant token.
         """
 
+        token = re.sub(r'[^ \na-zęóąśłżźćń/]+', '', token)
         token = self.__remove_xd(token)
-
-        #reduced_repeated_letters_candidate = [self.__reduce_repeated_letters(token),]
 
         df = self.__create_df_with_candidates(token)
 
@@ -389,6 +409,7 @@ class TextCorrectorPL:
             return df["token"].iloc[0]
         else:
             return token
+
 
     def correct_text(self, sequence: str) -> str:
 
